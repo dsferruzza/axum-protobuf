@@ -4,6 +4,8 @@ use futures_util::StreamExt;
 
 #[cfg(feature = "serde")]
 mod protojson;
+#[cfg(feature = "serde")]
+pub use protojson::*;
 
 /// Possible reasons why a request could be rejected.
 pub enum ProtobufRejection {
