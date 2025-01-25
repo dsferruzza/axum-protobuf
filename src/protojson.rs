@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use axum::{extract::{FromRequest, rejection::JsonRejection}, http::{StatusCode, HeaderMap}, body::Body, Json, response::{Response, IntoResponse}};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -103,7 +102,6 @@ where
     }
 } 
 
-#[async_trait]
 impl<S, T> FromRequest<S> for ProtoJson<T>
 where
     T: prost::Message + Default + DeserializeOwned, 

@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use axum::{response::{IntoResponse, Response}, http::StatusCode, body::Body, extract::FromRequest};
 use futures_util::StreamExt;
 
@@ -73,7 +72,6 @@ where
             .unwrap() // we know this will be valid since we made it
     }
 }
-#[async_trait]
 impl<S, T> FromRequest<S> for Protobuf<T>
 where
     T: prost::Message + Default, 
