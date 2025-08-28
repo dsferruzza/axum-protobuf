@@ -59,20 +59,21 @@ where
 {
     fn into_response(self) -> Response {
         let mut buf = Vec::new();
+
         if let Err(e) = self.0.encode(&mut buf) {
             buf = format!("protobuf encoding error: {}", e).into_bytes();
 
-            return Response::builder()
+            Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(buf))
-                .unwrap(); // we know this will be valid since we made it
+                .unwrap() // we know this will be valid since we made it
+        } else {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/protobuf")
+                .body(Body::from(buf))
+                .unwrap() // we know this will be valid since we made it
         }
-
-        Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/protobuf")
-            .body(Body::from(buf))
-            .unwrap() // we know this will be valid since we made it
     }
 }
 impl<S, T> FromRequest<S> for Protobuf<T>
