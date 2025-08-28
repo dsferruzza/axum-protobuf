@@ -1,4 +1,9 @@
-use axum::{response::{IntoResponse, Response}, http::StatusCode, body::Body, extract::FromRequest};
+use axum::{
+    body::Body,
+    extract::FromRequest,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use futures_util::StreamExt;
 
 #[cfg(feature = "serde")]
@@ -15,10 +20,9 @@ pub enum ProtobufRejection {
 impl IntoResponse for ProtobufRejection {
     fn into_response(self) -> Response {
         let (status, body) = match self {
-            ProtobufRejection::ProtobufDecodeError(_) => (
-                StatusCode::BAD_REQUEST,
-                "Protobuf decoding error",
-            ),
+            ProtobufRejection::ProtobufDecodeError(_) => {
+                (StatusCode::BAD_REQUEST, "Protobuf decoding error")
+            }
             ProtobufRejection::FailedToBufferBody => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Error reading request body",
@@ -37,14 +41,14 @@ impl IntoResponse for ProtobufRejection {
 }
 
 /// Protobuf Extractor / Response.
-/// 
+///
 /// When used as an extractor, it can decode request bodies into some type that implements [`prost::Message`] and [`Default`].
-/// 
+///
 /// The request will be rejected (and a [`ProtobufRejection`] will be returned) if:
 /// - The request doesn't have a `Content-Type: application/protobuf` (or similar) header.
-/// - The request body failed to decode into the expected protobuf type. 
+/// - The request body failed to decode into the expected protobuf type.
 /// - Buffering the request body fails.
-/// 
+///
 /// ⚠️ Since parsing Protobuf requires consuming the request body, the [`Protobuf`] extractor must be
 /// *last* if there are multiple extractors in a handler.
 /// See ["the order of extractors"][https://docs.rs/axum/latest/axum/extract/index.html#the-order-of-extractors]
@@ -62,26 +66,25 @@ where
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(buf))
-                .unwrap() // we know this will be valid since we made it
+                .unwrap(); // we know this will be valid since we made it
         }
 
         Response::builder()
             .status(StatusCode::OK)
             .header("content-type", "application/protobuf")
-            .body(Body::from(buf))   
+            .body(Body::from(buf))
             .unwrap() // we know this will be valid since we made it
     }
 }
 impl<S, T> FromRequest<S> for Protobuf<T>
 where
-    T: prost::Message + Default, 
-    S: Send + Sync,   
+    T: prost::Message + Default,
+    S: Send + Sync,
 {
     type Rejection = ProtobufRejection;
 
     async fn from_request(req: axum::http::Request<Body>, _: &S) -> Result<Self, Self::Rejection> {
-        req
-            .headers()
+        req.headers()
             .get("content-type")
             .and_then(|value| value.to_str().ok())
             .filter(|value| *value == "application/protobuf")
@@ -97,6 +100,6 @@ where
 
         T::decode(buf.as_slice())
             .map(|x| Self(x))
-            .map_err(|e| ProtobufRejection::ProtobufDecodeError(e))
+            .map_err(ProtobufRejection::ProtobufDecodeError)
     }
 }
