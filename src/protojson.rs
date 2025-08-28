@@ -2,13 +2,16 @@ use axum::Json;
 use axum::body::Body;
 use axum::extract::FromRequest;
 use axum::extract::rejection::JsonRejection;
+use axum::http::header::{ACCEPT, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use prost::Message;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::{Protobuf, ProtobufRejection};
+use crate::{PROTOBUF_CONTENT_TYPES, Protobuf, ProtobufRejection};
+
+const JSON_CONTENT_TYPE: &str = "application/json";
 
 /// Possible reasons why a request could be rejected.
 pub enum ProtoJsonRejection {
@@ -52,11 +55,13 @@ where
 {
     /// Attempt to construct a response based on the `accept` header.
     pub fn try_infer_response(self, header_map: &HeaderMap) -> Option<Response> {
-        let accept = header_map.get("accept").and_then(|v| v.to_str().ok());
+        let accept = header_map.get(ACCEPT).and_then(|v| v.to_str().ok());
 
         match accept {
-            Some("application/json") => Some(Json(self.0).into_response()),
-            Some("application/protobuf") => Some(Protobuf(self.0).into_response()),
+            Some(JSON_CONTENT_TYPE) => Some(Json(self.0).into_response()),
+            Some(content_type) if PROTOBUF_CONTENT_TYPES.contains(&content_type) => {
+                Some(Protobuf(self.0).into_response())
+            }
             _ => None,
         }
     }
@@ -115,18 +120,20 @@ where
     ) -> Result<Self, Self::Rejection> {
         let request_type = req
             .headers()
-            .get("content-type")
+            .get(CONTENT_TYPE)
             .and_then(|value| value.to_str().ok());
 
         match request_type {
-            Some("application/json") => Json::<T>::from_request(req, state)
+            Some(JSON_CONTENT_TYPE) => Json::<T>::from_request(req, state)
                 .await
                 .map(|x| x.into())
                 .map_err(ProtoJsonRejection::JsonRejection),
-            Some("application/protobuf") => Protobuf::<T>::from_request(req, state)
-                .await
-                .map(|x| x.into())
-                .map_err(ProtoJsonRejection::ProtobufRejection),
+            Some(content_type) if PROTOBUF_CONTENT_TYPES.contains(&content_type) => {
+                Protobuf::<T>::from_request(req, state)
+                    .await
+                    .map(|x| x.into())
+                    .map_err(ProtoJsonRejection::ProtobufRejection)
+            }
             _ => Err(ProtoJsonRejection::MissingContentType),
         }
     }

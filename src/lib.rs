@@ -1,6 +1,7 @@
 use axum::body::Body;
 use axum::extract::FromRequest;
 use axum::http::StatusCode;
+use axum::http::header::CONTENT_TYPE;
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 use prost::Message;
@@ -9,6 +10,13 @@ use prost::Message;
 mod protojson;
 #[cfg(feature = "serde")]
 pub use protojson::*;
+
+const PROTOBUF_CONTENT_TYPES: [&str; 3] = [
+    "application/protobuf",
+    "application/x-protobuf",
+    "application/vnd.google.protobuf",
+];
+const PROTOBUF_CONTENT_TYPE: &str = PROTOBUF_CONTENT_TYPES[0];
 
 /// Possible reasons why a request could be rejected.
 pub enum ProtobufRejection {
@@ -61,7 +69,7 @@ where
         let mut buf = Vec::new();
 
         if let Err(e) = self.0.encode(&mut buf) {
-            buf = format!("protobuf encoding error: {}", e).into_bytes();
+            buf = format!("protobuf encoding error: {e}").into_bytes();
 
             Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -70,7 +78,7 @@ where
         } else {
             Response::builder()
                 .status(StatusCode::OK)
-                .header("content-type", "application/protobuf")
+                .header(CONTENT_TYPE, PROTOBUF_CONTENT_TYPE)
                 .body(Body::from(buf))
                 .unwrap() // we know this will be valid since we made it
         }
@@ -85,9 +93,9 @@ where
 
     async fn from_request(req: axum::http::Request<Body>, _: &S) -> Result<Self, Self::Rejection> {
         req.headers()
-            .get("content-type")
+            .get(CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
-            .filter(|value| *value == "application/protobuf")
+            .filter(|value| PROTOBUF_CONTENT_TYPE.contains(value))
             .ok_or(ProtobufRejection::MissingProtobufContentType)?;
 
         let mut body = req.into_body().into_data_stream();
