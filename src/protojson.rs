@@ -51,7 +51,6 @@ where
     T: Message + Default + Serialize,
 {
     /// Attempt to construct a response based on the `accept` header.
-    #[allow(dead_code)]
     pub fn try_infer_response(self, header_map: &HeaderMap) -> Option<Response> {
         let accept = header_map.get("accept").and_then(|v| v.to_str().ok());
 
@@ -65,7 +64,6 @@ where
     /// Construct a response based on the `accept` header.
     ///
     /// If the `accept` header is not set or is not recognized, a [`StatusCode::BAD_REQUEST`] response is returned.
-    #[allow(dead_code)]
     pub fn infer_response(self, header_map: &HeaderMap) -> Response {
         self.try_infer_response(header_map).unwrap_or_else(
             || {
