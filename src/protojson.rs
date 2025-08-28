@@ -1,11 +1,12 @@
-use axum::{
-    Json,
-    body::Body,
-    extract::{FromRequest, rejection::JsonRejection},
-    http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
-};
-use serde::{Serialize, de::DeserializeOwned};
+use axum::Json;
+use axum::body::Body;
+use axum::extract::FromRequest;
+use axum::extract::rejection::JsonRejection;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use prost::Message;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::{Protobuf, ProtobufRejection};
 
@@ -47,7 +48,7 @@ pub struct ProtoJson<T>(pub T);
 
 impl<T> ProtoJson<T>
 where
-    T: prost::Message + Default + Serialize,
+    T: Message + Default + Serialize,
 {
     /// Attempt to construct a response based on the `accept` header.
     #[allow(dead_code)]
@@ -96,7 +97,7 @@ impl<T> From<Protobuf<T>> for ProtoJson<T> {
 }
 impl<T> From<ProtoJson<T>> for Protobuf<T>
 where
-    T: prost::Message + Default,
+    T: Message + Default,
 {
     fn from(val: ProtoJson<T>) -> Self {
         Protobuf(val.0)
@@ -105,7 +106,7 @@ where
 
 impl<S, T> FromRequest<S> for ProtoJson<T>
 where
-    T: prost::Message + Default + DeserializeOwned,
+    T: Message + Default + DeserializeOwned,
     S: Send + Sync,
 {
     type Rejection = ProtoJsonRejection;

@@ -1,10 +1,9 @@
-use axum::{
-    body::Body,
-    extract::FromRequest,
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
+use axum::body::Body;
+use axum::extract::FromRequest;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
+use prost::Message;
 
 #[cfg(feature = "serde")]
 mod protojson;
@@ -56,7 +55,7 @@ pub struct Protobuf<T>(pub T);
 
 impl<T> IntoResponse for Protobuf<T>
 where
-    T: prost::Message + Default,
+    T: Message + Default,
 {
     fn into_response(self) -> Response {
         let mut buf = Vec::new();
@@ -78,7 +77,7 @@ where
 }
 impl<S, T> FromRequest<S> for Protobuf<T>
 where
-    T: prost::Message + Default,
+    T: Message + Default,
     S: Send + Sync,
 {
     type Rejection = ProtobufRejection;
