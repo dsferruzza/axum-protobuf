@@ -50,7 +50,7 @@ impl IntoResponse for ProtobufRejection {
 ///
 /// ⚠️ Since parsing Protobuf requires consuming the request body, the [`Protobuf`] extractor must be
 /// *last* if there are multiple extractors in a handler.
-/// See ["the order of extractors"][https://docs.rs/axum/latest/axum/extract/index.html#the-order-of-extractors]
+/// See ["the order of extractors"](https://docs.rs/axum/latest/axum/extract/index.html#the-order-of-extractors).
 pub struct Protobuf<T>(pub T);
 
 impl<T> IntoResponse for Protobuf<T>

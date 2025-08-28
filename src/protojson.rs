@@ -43,7 +43,7 @@ impl IntoResponse for ProtoJsonRejection {
 ///
 /// ⚠️ Since parsing Protobuf and JSON requires consuming the request body, the [`ProtoJson`] extractor must be
 /// *last* if there are multiple extractors in a handler.
-/// See ["the order of extractors"][https://docs.rs/axum/latest/axum/extract/index.html#the-order-of-extractors]
+/// See ["the order of extractors"](https://docs.rs/axum/latest/axum/extract/index.html#the-order-of-extractors).
 pub struct ProtoJson<T>(pub T);
 
 impl<T> ProtoJson<T>
@@ -64,7 +64,7 @@ where
 
     /// Construct a response based on the `accept` header.
     ///
-    /// If the `accept` header is not set or is not recognized, a [`http::status::BAD_REQUEST`] response is returned.
+    /// If the `accept` header is not set or is not recognized, a [`StatusCode::BAD_REQUEST`] response is returned.
     #[allow(dead_code)]
     pub fn infer_response(self, header_map: &HeaderMap) -> Response {
         self.try_infer_response(header_map).unwrap_or_else(
