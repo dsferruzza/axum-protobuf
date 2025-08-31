@@ -9,7 +9,7 @@ use prost::Message;
 #[cfg(feature = "serde")]
 mod protojson;
 #[cfg(feature = "serde")]
-pub use protojson::*;
+pub use crate::protojson::*;
 
 const PROTOBUF_CONTENT_TYPES: [&str; 3] = [
     "application/protobuf",
