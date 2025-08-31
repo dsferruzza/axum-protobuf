@@ -2,6 +2,14 @@
 name = "axum-protobuf"
 version = "0.1.0"
 edition = "2024"
+authors = ["David Sferruzza <david.sferruzza@gmail.com>"]
+description = "A crate bringing protocol buffers to axum via prost."
+repository = "https://github.com/dsferruzza/axum-protobuf"
+readme = "README.md"
+documentation = "https://docs.rs/axum-protobuf"
+categories = ["web-programming::http-server", "encoding"]
+keywords = ["axum", "extractor", "response", "protobuf", "json"]
+license = "MIT"
 
 [dependencies]
 axum = { version = "0.8", default-features = false }

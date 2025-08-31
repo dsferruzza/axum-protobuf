@@ -1,3 +1,25 @@
+//! # axum-protobuf
+//!
+//! A crate bringing [protocol buffers](https://protobuf.dev/) to [axum](https://github.com/tokio-rs/axum) via [prost](https://github.com/tokio-rs/prost).
+//!
+//! ## Protobuf Extractor / Response
+//!
+//! This crate provides a [`Protobuf`] extractor and response.
+//! The usage is very similar to axum's [Json](https://docs.rs/axum/latest/axum/struct.Json.html).
+//! Refer to their documentation for usage, but replace `Json` with `Protobuf`.
+//!
+//! The only difference is that `T` must implement [prost::Message](https://docs.rs/prost/latest/prost/trait.Message.html).
+//!
+//! ## ProtoJson Extractor
+//!
+//! Additionally, this crate provides a [`ProtoJson`] extractor that can extract both protocol buffers and JSON payloads, depending upon the `content-type` header.
+//!
+//! Note that this does not implement [IntoResponse](https://docs.rs/axum/latest/axum/response/trait.IntoResponse.html) but you can use [`ProtoJson::infer_response`] to convert it into a JSON or protobuf response, based upon the `accept` header.
+//! Otherwise, you can simply convert `ProtoJson` to `Json` or `Protobuf`.
+
+// Force exposed items to be documented
+#![deny(missing_docs)]
+
 use axum::body::Body;
 use axum::extract::FromRequest;
 use axum::http::StatusCode;
@@ -8,6 +30,7 @@ use prost::Message;
 
 #[cfg(feature = "serde")]
 mod protojson;
+
 #[cfg(feature = "serde")]
 pub use crate::protojson::*;
 
@@ -20,8 +43,13 @@ const PROTOBUF_CONTENT_TYPE: &str = PROTOBUF_CONTENT_TYPES[0];
 
 /// Possible reasons why a request could be rejected.
 pub enum ProtobufRejection {
+    /// Decoding Protobuf failed.
     ProtobufDecodeError(prost::DecodeError),
+
+    /// Buffering request body failed.
     FailedToBufferBody,
+
+    /// Protobuf Content-Type header is missing.
     MissingProtobufContentType,
 }
 impl IntoResponse for ProtobufRejection {

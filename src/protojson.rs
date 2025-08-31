@@ -15,8 +15,13 @@ const JSON_CONTENT_TYPE: &str = "application/json";
 
 /// Possible reasons why a request could be rejected.
 pub enum ProtoJsonRejection {
+    /// Protobuf-related error.
     ProtobufRejection(ProtobufRejection),
+
+    /// JSON-related error.
     JsonRejection(JsonRejection),
+
+    /// Content-Type header is missing or has an unsupported value.
     MissingContentType,
 }
 impl IntoResponse for ProtoJsonRejection {
