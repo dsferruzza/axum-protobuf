@@ -95,7 +95,7 @@ where
         req.headers()
             .get(CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
-            .filter(|value| PROTOBUF_CONTENT_TYPE.contains(value))
+            .filter(|value| PROTOBUF_CONTENT_TYPES.contains(value))
             .ok_or(ProtobufRejection::MissingProtobufContentType)?;
 
         let mut body = req.into_body().into_data_stream();
