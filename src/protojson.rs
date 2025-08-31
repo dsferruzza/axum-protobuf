@@ -26,8 +26,8 @@ impl IntoResponse for ProtoJsonRejection {
             ProtoJsonRejection::ProtobufRejection(rejection) => rejection.into_response(),
             ProtoJsonRejection::MissingContentType => {
                 Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::from("Missing 'content-type' header that has the value `application/json` or `application/protobuf`"))
+                    .status(StatusCode::UNSUPPORTED_MEDIA_TYPE)
+                    .body(Body::from("Missing 'content-type' header that has the value 'application/json' or 'application/protobuf'"))
                     .unwrap() // we know this will be valid since we made it
             }
         }
@@ -74,7 +74,7 @@ where
             || {
                 Response::builder()
                     .status(StatusCode::BAD_REQUEST)
-                    .body(Body::empty())
+                    .body(Body::from(format!("Missing '{ACCEPT}' header with value 'application/json' or 'application/protobuf'")))
                     .unwrap()
             }, // we know this will be valid since we made it
         )
