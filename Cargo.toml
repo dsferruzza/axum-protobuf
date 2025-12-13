@@ -29,5 +29,5 @@ axum = { version = "0.8", default-features = false, features = ["macros"] }
 prost = { version = "0.14", default-features = false, features = ["derive"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false }
-tokio = { version = "1.47", default-features = false, features = ["rt", "macros"] }
+tokio = { version = "1.48", default-features = false, features = ["rt", "macros"] }
 tower = { version = "0.5", default-features = false }
