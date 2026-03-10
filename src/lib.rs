@@ -10,6 +10,23 @@
 //!
 //! The only difference is that `T` must implement [prost::Message](https://docs.rs/prost/latest/prost/trait.Message.html).
 //!
+//! ```no_run
+//! # use axum::{Router, routing::{get, post}};
+//! # use axum_protobuf::Protobuf;
+//! # use prost::Message;
+//! #[derive(Clone, PartialEq, Eq, Message)]
+//! struct MyMessage {
+//!     #[prost(string, tag = "1")]
+//!     name: String,
+//! }
+//!
+//! async fn handler(Protobuf(msg): Protobuf<MyMessage>) -> Protobuf<MyMessage> {
+//!     Protobuf(msg)
+//! }
+//!
+//! let app: Router = Router::new().route("/", post(handler));
+//! ```
+//!
 //! ## ProtoJson Extractor / Response
 //!
 //! Additionally, this crate provides a [`ProtoJson`] extractor that can extract both protocol buffers and JSON payloads, depending upon the `content-type` header.
@@ -18,6 +35,73 @@
 //! When no `accept` header is present or no supported format matches, it defaults to JSON.
 //!
 //! You can also convert `ProtoJson` to `Json` or `Protobuf` directly.
+//!
+//! Use as an extractor in POST handlers — content-type detection and accept header capture are automatic:
+//!
+//! ```no_run
+//! # use axum::{Router, routing::post};
+//! # use axum_protobuf::ProtoJson;
+//! # use prost::Message;
+//! # use serde::{Deserialize, Serialize};
+//! #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Message)]
+//! struct MyMessage {
+//!     #[prost(string, tag = "1")]
+//!     name: String,
+//! }
+//!
+//! async fn handler(input: ProtoJson<MyMessage>) -> ProtoJson<MyMessage> {
+//!     // Response format is negotiated from the request's Accept header.
+//!     input
+//! }
+//!
+//! let app: Router = Router::new().route("/", post(handler));
+//! ```
+//!
+//! For GET handlers (no request body), construct `ProtoJson` manually with the accept header:
+//!
+//! ```no_run
+//! # use axum::{Router, routing::get};
+//! # use axum::http::HeaderMap;
+//! # use axum::http::header::ACCEPT;
+//! # use axum_protobuf::ProtoJson;
+//! # use prost::Message;
+//! # use serde::{Deserialize, Serialize};
+//! # #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Message)]
+//! # struct MyMessage {
+//! #     #[prost(string, tag = "1")]
+//! #     name: String,
+//! # }
+//! async fn handler(headers: HeaderMap) -> ProtoJson<MyMessage> {
+//!     ProtoJson::with_accept(
+//!         headers.get(ACCEPT).cloned(),
+//!         MyMessage { name: "hello".to_owned() },
+//!     )
+//! }
+//!
+//! let app: Router = Router::new().route("/", get(handler));
+//! ```
+//!
+//! Or use [`OptionalAcceptHeader`] with `TypedHeader` for a more ergonomic extraction:
+//!
+//! ```no_run
+//! # use axum::{Router, routing::get};
+//! # use axum_extra::TypedHeader;
+//! # use axum_protobuf::{OptionalAcceptHeader, ProtoJson};
+//! # use prost::Message;
+//! # use serde::{Deserialize, Serialize};
+//! # #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Message)]
+//! # struct MyMessage {
+//! #     #[prost(string, tag = "1")]
+//! #     name: String,
+//! # }
+//! async fn handler(
+//!     TypedHeader(OptionalAcceptHeader(accept)): TypedHeader<OptionalAcceptHeader>,
+//! ) -> ProtoJson<MyMessage> {
+//!     ProtoJson::with_accept(accept, MyMessage { name: "hello".to_owned() })
+//! }
+//!
+//! let app: Router = Router::new().route("/", get(handler));
+//! ```
 
 // Force exposed items to be documented
 #![deny(missing_docs)]
