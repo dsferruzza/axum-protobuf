@@ -5,14 +5,22 @@ on: [push, pull_request]
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: ["1.85", "1.94"]
+    name: check (${{ matrix.rust }})
     steps:
     - name: Checkout sources
       uses: actions/checkout@v5
 
-    - name: Install stable toolchain
-      uses: dtolnay/rust-toolchain@1.89
+    - name: Install Rust ${{ matrix.rust }}
+      uses: dtolnay/rust-toolchain@master
       with:
+        toolchain: ${{ matrix.rust }}
         components: clippy, rustfmt
+
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
 
     - name: Run Rustfmt
       run: cargo fmt --all -- --check

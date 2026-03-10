@@ -4,6 +4,7 @@
 ![CI](https://github.com/dsferruzza/axum-protobuf/workflows/CI/badge.svg)
 [![Crates.io Version](https://img.shields.io/crates/v/axum-protobuf.svg)](https://crates.io/crates/axum-protobuf)
 [![Documentation](https://docs.rs/axum-protobuf/badge.svg)](https://docs.rs/axum-protobuf)
+![MSRV](https://img.shields.io/badge/MSRV-1.85-blue.svg)
 
 A crate bringing [protocol buffers](https://protobuf.dev/) to [axum](https://github.com/tokio-rs/axum) via [prost](https://github.com/tokio-rs/prost).
 

@@ -2,6 +2,7 @@
 name = "axum-protobuf"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["David Sferruzza <david.sferruzza@gmail.com>"]
 description = "A crate bringing protocol buffers to axum via prost."
 repository = "https://github.com/dsferruzza/axum-protobuf"
