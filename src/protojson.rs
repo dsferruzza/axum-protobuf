@@ -3,13 +3,16 @@ use axum::body::Body;
 use axum::extract::FromRequest;
 use axum::extract::Request;
 use axum::extract::rejection::JsonRejection;
+use axum::http::HeaderName;
 use axum::http::HeaderValue;
 use axum::http::StatusCode;
 use axum::http::header::ACCEPT;
 use axum::response::{IntoResponse, Response};
+use axum_extra::headers::Header;
 use prost::Message;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use std::iter::once;
 use std::ops::{Deref, DerefMut};
 
 use crate::{Protobuf, ProtobufRejection, is_json_content_type, is_protobuf_content_type};
@@ -51,6 +54,32 @@ impl IntoResponse for ProtoJsonRejection {
 enum ResponseFormat {
     Json,
     Protobuf,
+}
+
+/// An optional `Accept` header extractor.
+pub struct OptionalAcceptHeader(
+    /// The raw `Accept` header value if found.
+    pub Option<HeaderValue>,
+);
+
+impl Header for OptionalAcceptHeader {
+    fn name() -> &'static HeaderName {
+        &ACCEPT
+    }
+
+    fn decode<'i, I>(values: &mut I) -> Result<Self, axum_extra::headers::Error>
+    where
+        Self: Sized,
+        I: Iterator<Item = &'i HeaderValue>,
+    {
+        Ok(Self(values.next().cloned()))
+    }
+
+    fn encode<E: Extend<HeaderValue>>(&self, values: &mut E) {
+        if let Some(hv) = &self.0 {
+            values.extend(once(hv.to_owned()));
+        }
+    }
 }
 
 /// Negotiate the response format from an Accept header value using RFC 7231 content negotiation.

@@ -2,7 +2,8 @@ use axum::Router;
 use axum::http::HeaderMap;
 use axum::http::header::ACCEPT;
 use axum::routing::{get, post};
-use axum_protobuf::{ProtoJson, Protobuf};
+use axum_extra::TypedHeader;
+use axum_protobuf::{OptionalAcceptHeader, ProtoJson, Protobuf};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +13,10 @@ pub fn build_app() -> Router {
         .route("/protobuf/output", get(protobuf_output_handler))
         .route("/protojson/input", post(protojson_input_handler))
         .route("/protojson/output", get(protojson_output_handler))
+        .route(
+            "/protojson/output_with_typed_header_extract",
+            get(protojson_output_with_typed_header_extract),
+        )
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Message)]
@@ -41,6 +46,18 @@ pub async fn protojson_input_handler(input: ProtoJson<TestMessage>) -> String {
 pub async fn protojson_output_handler(headers: HeaderMap) -> ProtoJson<TestMessage> {
     ProtoJson::with_accept(
         headers.get(ACCEPT).cloned(),
+        TestMessage {
+            test: "test".to_owned(),
+        },
+    )
+}
+
+#[axum::debug_handler]
+pub async fn protojson_output_with_typed_header_extract(
+    TypedHeader(OptionalAcceptHeader(accept)): TypedHeader<OptionalAcceptHeader>,
+) -> ProtoJson<TestMessage> {
+    ProtoJson::with_accept(
+        accept,
         TestMessage {
             test: "test".to_owned(),
         },
