@@ -181,7 +181,58 @@ async fn protojson_extractor_json_simple() {
 }
 
 #[tokio::test]
-async fn protojson_response_no_accept() {
+async fn protojson_extractor_protobuf_content_type_with_parameters() {
+    let app = build_app();
+    let test_string = "test";
+    let mut input = Vec::new();
+    TestMessage {
+        test: test_string.to_owned(),
+    }
+    .encode(&mut input)
+    .unwrap();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/protojson/input")
+                .header("Content-Type", "application/protobuf; charset=utf-8")
+                .body(Body::from(input))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+    dbg!(&body);
+    assert_eq!(body.iter().as_slice(), test_string.as_bytes());
+}
+
+#[tokio::test]
+async fn protojson_extractor_json_content_type_with_parameters() {
+    let app = build_app();
+    let test_string = "test";
+    let input = json!({ "test": test_string }).to_string();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/protojson/input")
+                .header("Content-Type", "application/json; charset=utf-8")
+                .body(Body::from(input))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+    dbg!(&body);
+    assert_eq!(body.iter().as_slice(), test_string.as_bytes());
+}
+
+// --- Response / Content Negotiation Tests ---
+
+#[tokio::test]
+async fn protojson_response_no_accept_defaults_to_json() {
     let app = build_app();
     let res = app
         .oneshot(
@@ -193,13 +244,15 @@ async fn protojson_response_no_accept() {
         )
         .await
         .unwrap();
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers().get("Content-Type").unwrap(),
+        "application/json"
+    );
     let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
     dbg!(&body);
-    assert_eq!(
-        body,
-        "Missing 'accept' header with value 'application/json' or 'application/protobuf'"
-    );
+    let message = from_slice::<TestMessage>(body.iter().as_slice()).unwrap();
+    assert_eq!(message.test, "test");
 }
 
 #[tokio::test]
@@ -250,4 +303,115 @@ async fn protojson_response_json() {
     dbg!(&body);
     let message = from_slice::<TestMessage>(body.iter().as_slice()).unwrap();
     assert_eq!(message.test, "test");
+}
+
+#[tokio::test]
+async fn protojson_response_quality_prefers_json() {
+    let app = build_app();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/protojson/output")
+                .header(
+                    "Accept",
+                    "application/protobuf;q=0.9, application/json;q=1.0",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers().get("Content-Type").unwrap(),
+        "application/json"
+    );
+}
+
+#[tokio::test]
+async fn protojson_response_quality_prefers_protobuf() {
+    let app = build_app();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/protojson/output")
+                .header(
+                    "Accept",
+                    "application/json;q=0.5, application/protobuf;q=0.9",
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers().get("Content-Type").unwrap(),
+        "application/protobuf"
+    );
+}
+
+#[tokio::test]
+async fn protojson_response_wildcard_defaults_to_json() {
+    let app = build_app();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/protojson/output")
+                .header("Accept", "*/*")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers().get("Content-Type").unwrap(),
+        "application/json"
+    );
+}
+
+#[tokio::test]
+async fn protojson_response_application_wildcard_defaults_to_json() {
+    let app = build_app();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/protojson/output")
+                .header("Accept", "application/*")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers().get("Content-Type").unwrap(),
+        "application/json"
+    );
+}
+
+#[tokio::test]
+async fn protojson_response_unknown_accept_defaults_to_json() {
+    let app = build_app();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/protojson/output")
+                .header("Accept", "text/html")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers().get("Content-Type").unwrap(),
+        "application/json"
+    );
 }

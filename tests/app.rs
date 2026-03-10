@@ -1,6 +1,6 @@
 use axum::Router;
 use axum::http::HeaderMap;
-use axum::response::Response;
+use axum::http::header::ACCEPT;
 use axum::routing::{get, post};
 use axum_protobuf::{ProtoJson, Protobuf};
 use prost::Message;
@@ -33,14 +33,16 @@ pub async fn protobuf_output_handler() -> Protobuf<TestMessage> {
 }
 
 #[axum::debug_handler]
-pub async fn protojson_input_handler(ProtoJson(input): ProtoJson<TestMessage>) -> String {
-    input.test
+pub async fn protojson_input_handler(input: ProtoJson<TestMessage>) -> String {
+    input.into_inner().test
 }
 
 #[axum::debug_handler]
-pub async fn protojson_output_handler(headers: HeaderMap) -> Response {
-    ProtoJson(TestMessage {
-        test: "test".to_owned(),
-    })
-    .infer_response(&headers)
+pub async fn protojson_output_handler(headers: HeaderMap) -> ProtoJson<TestMessage> {
+    ProtoJson::with_accept(
+        headers.get(ACCEPT).cloned(),
+        TestMessage {
+            test: "test".to_owned(),
+        },
+    )
 }

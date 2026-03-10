@@ -135,6 +135,33 @@ async fn protobuf_extractor_alternative_content_types() {
 }
 
 #[tokio::test]
+async fn protobuf_extractor_content_type_with_parameters() {
+    let app = build_app();
+    let test_string = "test";
+    let mut input = Vec::new();
+    TestMessage {
+        test: test_string.to_owned(),
+    }
+    .encode(&mut input)
+    .unwrap();
+    let res = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/protobuf/input")
+                .header("Content-Type", "application/protobuf; charset=utf-8")
+                .body(Body::from(input))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = to_bytes(res.into_body(), usize::MAX).await.unwrap();
+    dbg!(&body);
+    assert_eq!(body.iter().as_slice(), test_string.as_bytes());
+}
+
+#[tokio::test]
 async fn protobuf_response() {
     let app = build_app();
     let res = app

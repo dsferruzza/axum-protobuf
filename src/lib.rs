@@ -10,22 +10,24 @@
 //!
 //! The only difference is that `T` must implement [prost::Message](https://docs.rs/prost/latest/prost/trait.Message.html).
 //!
-//! ## ProtoJson Extractor
+//! ## ProtoJson Extractor / Response
 //!
 //! Additionally, this crate provides a [`ProtoJson`] extractor that can extract both protocol buffers and JSON payloads, depending upon the `content-type` header.
 //!
-//! Note that this does not implement [IntoResponse](https://docs.rs/axum/latest/axum/response/trait.IntoResponse.html) but you can use [`ProtoJson::infer_response`] to convert it into a JSON or protobuf response, based upon the `accept` header.
-//! Otherwise, you can simply convert `ProtoJson` to `Json` or `Protobuf`.
+//! `ProtoJson` implements [IntoResponse](https://docs.rs/axum/latest/axum/response/trait.IntoResponse.html) and automatically negotiates the response format based on the `accept` header (using RFC 7231 content negotiation).
+//! When no `accept` header is present or no supported format matches, it defaults to JSON.
+//!
+//! You can also convert `ProtoJson` to `Json` or `Protobuf` directly.
 
 // Force exposed items to be documented
 #![deny(missing_docs)]
 
-use axum::body::Body;
+use axum::body::{Body, to_bytes};
 use axum::extract::FromRequest;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::http::header::CONTENT_TYPE;
 use axum::response::{IntoResponse, Response};
-use futures_util::StreamExt;
 use prost::Message;
 
 #[cfg(feature = "serde")]
@@ -34,24 +36,54 @@ mod protojson;
 #[cfg(feature = "serde")]
 pub use crate::protojson::*;
 
-const PROTOBUF_CONTENT_TYPES: [&str; 3] = [
-    "application/protobuf",
-    "application/x-protobuf",
-    "application/vnd.google.protobuf",
-];
-const PROTOBUF_CONTENT_TYPE: &str = PROTOBUF_CONTENT_TYPES[0];
+const PROTOBUF_CONTENT_TYPE: &str = "application/protobuf";
+
+/// Check if a Content-Type header value matches any protobuf MIME type.
+/// Ignores parameters (charset, etc.) — only checks type/subtype.
+fn is_protobuf_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|ct| ct.to_str().ok())
+        .and_then(|ct| ct.parse::<mime::Mime>().ok())
+        .is_some_and(|mime| {
+            mime.type_() == "application"
+                && matches!(
+                    mime.subtype().as_str(),
+                    "protobuf" | "x-protobuf" | "vnd.google.protobuf"
+                )
+        })
+}
+
+/// Check if a Content-Type header value matches JSON MIME type.
+/// Ignores parameters (charset, etc.) — only checks type/subtype.
+#[cfg(feature = "serde")]
+fn is_json_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|ct| ct.to_str().ok())
+        .and_then(|ct| ct.parse::<mime::Mime>().ok())
+        .is_some_and(|mime| {
+            mime.type_() == "application"
+                && (mime.subtype() == "json" || mime.suffix().is_some_and(|s| s == "json"))
+        })
+}
 
 /// Possible reasons why a request could be rejected.
+#[derive(Debug, thiserror::Error)]
 pub enum ProtobufRejection {
     /// Decoding Protobuf failed.
-    ProtobufDecodeError(prost::DecodeError),
+    #[error("Protobuf decoding error")]
+    ProtobufDecodeError(#[from] prost::DecodeError),
 
     /// Buffering request body failed.
+    #[error("Error reading request body")]
     FailedToBufferBody,
 
     /// Protobuf Content-Type header is missing.
+    #[error("Missing 'content-type: application/protobuf' header")]
     MissingProtobufContentType,
 }
+
 impl IntoResponse for ProtobufRejection {
     fn into_response(self) -> Response {
         let (status, body) = match self {
@@ -84,9 +116,17 @@ impl IntoResponse for ProtobufRejection {
 /// - The request body failed to decode into the expected protobuf type.
 /// - Buffering the request body fails.
 ///
+/// # Body size limit
+///
+/// This extractor relies on axum's [`DefaultBodyLimit`](https://docs.rs/axum/latest/axum/extract/struct.DefaultBodyLimit.html)
+/// (2 MiB by default) to cap request body size. If you have disabled it, apply
+/// [`RequestBodyLimitLayer`](https://docs.rs/tower-http/latest/tower_http/limit/struct.RequestBodyLimitLayer.html)
+/// to prevent unbounded memory consumption.
+///
 /// ⚠️ Since parsing Protobuf requires consuming the request body, the [`Protobuf`] extractor must be
 /// *last* if there are multiple extractors in a handler.
 /// See ["the order of extractors"](https://docs.rs/axum/latest/axum/extract/index.html#the-order-of-extractors).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Protobuf<T>(pub T);
 
 impl<T> IntoResponse for Protobuf<T>
@@ -120,22 +160,16 @@ where
     type Rejection = ProtobufRejection;
 
     async fn from_request(req: axum::http::Request<Body>, _: &S) -> Result<Self, Self::Rejection> {
-        req.headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .filter(|value| PROTOBUF_CONTENT_TYPES.contains(value))
-            .ok_or(ProtobufRejection::MissingProtobufContentType)?;
+        if !is_protobuf_content_type(req.headers()) {
+            Err(ProtobufRejection::MissingProtobufContentType)
+        } else {
+            let bytes = to_bytes(req.into_body(), usize::MAX)
+                .await
+                .map_err(|_| ProtobufRejection::FailedToBufferBody)?;
 
-        let mut body = req.into_body().into_data_stream();
-        let mut buf = Vec::new();
-
-        while let Some(chunk) = body.next().await {
-            let chunk = chunk.map_err(|_| ProtobufRejection::FailedToBufferBody)?;
-            buf.extend_from_slice(&chunk);
+            T::decode(bytes)
+                .map(Self)
+                .map_err(ProtobufRejection::ProtobufDecodeError)
         }
-
-        T::decode(buf.as_slice())
-            .map(|x| Self(x))
-            .map_err(ProtobufRejection::ProtobufDecodeError)
     }
 }

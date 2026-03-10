@@ -17,12 +17,13 @@ Refer to their documentation for usage, but replace `Json` with `Protobuf`.
 
 The only difference is that `T` must implement [prost::Message](https://docs.rs/prost/latest/prost/trait.Message.html).
 
-### ProtoJson Extractor
+### ProtoJson Extractor / Response
 
 Additionally, this crate provides a `ProtoJson` extractor that can extract both protocol buffers and JSON payloads, depending upon the `content-type` header.
 
-Note that this does not implement [IntoResponse](https://docs.rs/axum/latest/axum/response/trait.IntoResponse.html) but you can use `infer_response` to convert it into a JSON or protobuf response, based upon the `accept` header.
-Otherwise, you can simply convert `ProtoJson` to `Json` or `Protobuf`.
+`ProtoJson` implements [IntoResponse](https://docs.rs/axum/latest/axum/response/trait.IntoResponse.html) and automatically negotiates the response format based on the `accept` header using RFC 7231 content negotiation. When no `accept` header is present or no supported format matches, it defaults to JSON.
+
+You can also convert `ProtoJson` to `Json` or `Protobuf` directly.
 
 ## License
 

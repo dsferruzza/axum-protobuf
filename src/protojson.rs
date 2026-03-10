@@ -1,27 +1,34 @@
 use axum::Json;
 use axum::body::Body;
 use axum::extract::FromRequest;
+use axum::extract::Request;
 use axum::extract::rejection::JsonRejection;
-use axum::http::header::{ACCEPT, CONTENT_TYPE};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderValue;
+use axum::http::StatusCode;
+use axum::http::header::ACCEPT;
 use axum::response::{IntoResponse, Response};
 use prost::Message;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use std::ops::{Deref, DerefMut};
 
-use crate::{PROTOBUF_CONTENT_TYPES, Protobuf, ProtobufRejection};
-
-const JSON_CONTENT_TYPE: &str = "application/json";
+use crate::{Protobuf, ProtobufRejection, is_json_content_type, is_protobuf_content_type};
 
 /// Possible reasons why a request could be rejected.
+#[derive(Debug, thiserror::Error)]
 pub enum ProtoJsonRejection {
     /// Protobuf-related error.
-    ProtobufRejection(ProtobufRejection),
+    #[error(transparent)]
+    ProtobufRejection(#[from] ProtobufRejection),
 
     /// JSON-related error.
-    JsonRejection(JsonRejection),
+    #[error(transparent)]
+    JsonRejection(#[from] JsonRejection),
 
     /// Content-Type header is missing or has an unsupported value.
+    #[error(
+        "Missing 'content-type' header that has the value 'application/json' or 'application/protobuf'"
+    )]
     MissingContentType,
 }
 impl IntoResponse for ProtoJsonRejection {
@@ -39,55 +46,166 @@ impl IntoResponse for ProtoJsonRejection {
     }
 }
 
-/// ProtoJson Extractor.
+/// Response format determined by content negotiation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponseFormat {
+    Json,
+    Protobuf,
+}
+
+/// Negotiate the response format from an Accept header value using RFC 7231 content negotiation.
 ///
-/// This can decode request bodies into some type that implements ([`prost::Message`] and [`Default`]) or [`serde::Deserialize`].
+/// Parses comma-separated media ranges with optional quality values, sorts by quality descending,
+/// and returns the first supported format. Handles wildcards (`*/*`, `application/*`).
+/// Defaults to JSON when Accept is missing, unparseable, or no supported format matches.
+fn negotiate_format(accept: Option<&HeaderValue>) -> ResponseFormat {
+    accept
+        .and_then(|a| a.to_str().ok())
+        .and_then(|accept_str| {
+            let mut candidates: Vec<(mime::Mime, f32)> = accept_str
+                .split(',')
+                .filter_map(|part| {
+                    let mime = part.trim().parse::<mime::Mime>().ok()?;
+                    let q = mime
+                        .get_param("q")
+                        .and_then(|v| v.as_str().parse::<f32>().ok())
+                        .map(|q| q.clamp(0.0, 1.0))
+                        .unwrap_or(1.0);
+                    Some((mime, q))
+                })
+                .collect();
+
+            // Sort by quality descending (stable sort preserves order for equal quality)
+            candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            candidates.iter().find_map(|(mime, _)| {
+                if (mime.type_() == mime::STAR && mime.subtype() == mime::STAR)
+                    || (mime.type_() == "application" && mime.subtype() == mime::STAR)
+                {
+                    Some(ResponseFormat::Json)
+                } else if mime.type_() == "application" {
+                    match mime.subtype().as_str() {
+                        "json" => Some(ResponseFormat::Json),
+                        "protobuf" | "x-protobuf" | "vnd.google.protobuf" => {
+                            Some(ResponseFormat::Protobuf)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or(ResponseFormat::Json)
+}
+
+/// ProtoJson Extractor / Response.
 ///
+/// This can decode request bodies into some type that implements ([`prost::Message`] and [`Default`]) or [`serde::Deserialize`],
+/// depending on the `content-type` header.
+///
+/// The request will be rejected (and a [`ProtoJsonRejection`] will be returned) if:
 /// - The request doesn't have a `Content-Type: application/protobuf` / `Content-Type: application/json` (or similar) header.
 /// - The request body failed to decode into the expected protobuf type.
 /// - The body doesn't contain syntactically valid JSON.
 /// - The body contains syntactically valid JSON, but it couldn't be deserialized into the target type.
 /// - Buffering the request body fails.
 ///
+/// When used as a response, it implements [`IntoResponse`] and automatically negotiates the response
+/// format based on the `accept` header using RFC 7231 content negotiation. When no `accept` header
+/// is present or no supported format matches, it defaults to JSON.
+///
+/// When extracted from a request, the `accept` header is captured automatically.
+/// For manual construction (e.g., in GET handlers), use [`ProtoJson::with_accept`] to specify the
+/// `accept` header, or [`ProtoJson::new`] to default to JSON.
+///
+/// # Body size limit
+///
+/// This extractor relies on axum's [`DefaultBodyLimit`](https://docs.rs/axum/latest/axum/extract/struct.DefaultBodyLimit.html)
+/// (2 MiB by default) to cap request body size. If you have disabled it, apply
+/// [`RequestBodyLimitLayer`](https://docs.rs/tower-http/latest/tower_http/limit/struct.RequestBodyLimitLayer.html)
+/// to prevent unbounded memory consumption.
+///
 /// ⚠️ Since parsing Protobuf and JSON requires consuming the request body, the [`ProtoJson`] extractor must be
 /// *last* if there are multiple extractors in a handler.
 /// See ["the order of extractors"](https://docs.rs/axum/latest/axum/extract/index.html#the-order-of-extractors).
-pub struct ProtoJson<T>(pub T);
+pub struct ProtoJson<T> {
+    inner: T,
+    accept: Option<HeaderValue>,
+}
 
-impl<T> ProtoJson<T>
-where
-    T: Message + Default + Serialize,
-{
-    /// Attempt to construct a response based on the `accept` header.
-    pub fn try_infer_response(self, header_map: &HeaderMap) -> Option<Response> {
-        let accept = header_map.get(ACCEPT).and_then(|v| v.to_str().ok());
+impl<T: std::fmt::Debug> std::fmt::Debug for ProtoJson<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProtoJson")
+            .field("inner", &self.inner)
+            .field("accept", &self.accept)
+            .finish()
+    }
+}
 
-        match accept {
-            Some(JSON_CONTENT_TYPE) => Some(Json(self.0).into_response()),
-            Some(content_type) if PROTOBUF_CONTENT_TYPES.contains(&content_type) => {
-                Some(Protobuf(self.0).into_response())
-            }
-            _ => None,
+impl<T: Clone> Clone for ProtoJson<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            accept: self.accept.clone(),
+        }
+    }
+}
+
+impl<T> ProtoJson<T> {
+    /// Create a new `ProtoJson` with no Accept header (defaults to JSON on response).
+    pub fn new(value: T) -> Self {
+        Self {
+            inner: value,
+            accept: None,
         }
     }
 
-    /// Construct a response based on the `accept` header.
+    /// Create a new `ProtoJson` with a specific Accept header value.
     ///
-    /// If the `accept` header is not set or is not recognized, a [`StatusCode::BAD_REQUEST`] response is returned.
-    pub fn infer_response(self, header_map: &HeaderMap) -> Response {
-        self.try_infer_response(header_map).unwrap_or_else(
-            || {
-                Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::from(format!("Missing '{ACCEPT}' header with value 'application/json' or 'application/protobuf'")))
-                    .unwrap()
-            }, // we know this will be valid since we made it
-        )
+    /// Use this in handlers that construct responses manually (e.g., GET handlers)
+    /// to enable content negotiation based on the client's `accept` header.
+    pub fn with_accept(accept: Option<HeaderValue>, value: T) -> Self {
+        Self {
+            inner: value,
+            accept,
+        }
+    }
+
+    /// Consume the `ProtoJson` and return the inner value.
+    pub fn into_inner(self) -> T {
+        self.inner
     }
 }
+
+impl<T> Deref for ProtoJson<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.inner
+    }
+}
+
+impl<T> DerefMut for ProtoJson<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.inner
+    }
+}
+
+impl<T> IntoResponse for ProtoJson<T>
+where
+    T: Message + Default + Serialize,
+{
+    fn into_response(self) -> Response {
+        match negotiate_format(self.accept.as_ref()) {
+            ResponseFormat::Json => Json(self.inner).into_response(),
+            ResponseFormat::Protobuf => Protobuf(self.inner).into_response(),
+        }
+    }
+}
+
 impl<T> From<Json<T>> for ProtoJson<T> {
     fn from(x: Json<T>) -> ProtoJson<T> {
-        ProtoJson(x.0)
+        ProtoJson::new(x.0)
     }
 }
 impl<T> From<ProtoJson<T>> for Json<T>
@@ -95,12 +213,12 @@ where
     T: DeserializeOwned,
 {
     fn from(val: ProtoJson<T>) -> Self {
-        Json(val.0)
+        Json(val.inner)
     }
 }
 impl<T> From<Protobuf<T>> for ProtoJson<T> {
     fn from(x: Protobuf<T>) -> ProtoJson<T> {
-        ProtoJson(x.0)
+        ProtoJson::new(x.0)
     }
 }
 impl<T> From<ProtoJson<T>> for Protobuf<T>
@@ -108,7 +226,7 @@ where
     T: Message + Default,
 {
     fn from(val: ProtoJson<T>) -> Self {
-        Protobuf(val.0)
+        Protobuf(val.inner)
     }
 }
 
@@ -119,27 +237,27 @@ where
 {
     type Rejection = ProtoJsonRejection;
 
-    async fn from_request(
-        req: axum::http::Request<Body>,
-        state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let request_type = req
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok());
+    async fn from_request(req: Request<Body>, state: &S) -> Result<Self, Self::Rejection> {
+        let accept = req.headers().get(ACCEPT).cloned();
 
-        match request_type {
-            Some(JSON_CONTENT_TYPE) => Json::<T>::from_request(req, state)
+        if is_protobuf_content_type(req.headers()) {
+            let protobuf = Protobuf::<T>::from_request(req, state)
                 .await
-                .map(|x| x.into())
-                .map_err(ProtoJsonRejection::JsonRejection),
-            Some(content_type) if PROTOBUF_CONTENT_TYPES.contains(&content_type) => {
-                Protobuf::<T>::from_request(req, state)
-                    .await
-                    .map(|x| x.into())
-                    .map_err(ProtoJsonRejection::ProtobufRejection)
-            }
-            _ => Err(ProtoJsonRejection::MissingContentType),
+                .map_err(ProtoJsonRejection::ProtobufRejection)?;
+            Ok(ProtoJson {
+                inner: protobuf.0,
+                accept,
+            })
+        } else if is_json_content_type(req.headers()) {
+            let json = Json::<T>::from_request(req, state)
+                .await
+                .map_err(ProtoJsonRejection::JsonRejection)?;
+            Ok(ProtoJson {
+                inner: json.0,
+                accept,
+            })
+        } else {
+            Err(ProtoJsonRejection::MissingContentType)
         }
     }
 }
